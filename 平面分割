@@ -1,0 +1,88 @@
+#include <iostream>
+#include <vector>
+#include <pcl/point_types.h>
+#include <pcl/io/pcd_io.h>
+#include <pcl/io/ply_io.h>
+#include <pcl/search/search.h>
+#include <pcl/features/normal_3d.h>
+#include <pcl/visualization/cloud_viewer.h>
+#include <pcl/filters/passthrough.h>
+#include <pcl/segmentation/region_growing.h>
+
+int main(int argc,char **argv)
+{
+   
+    char tmpStr[100];
+    strcpy(tmpStr,argv[1]);
+    char* pext = strrchr(tmpStr, '.');
+    std::string extply("ply");
+    std::string extpcd("pcd");
+    if(pext)
+    {
+        *pext='\0';
+        pext++;
+    }
+    std::string ext(pext);
+    
+    if (!((ext == extply)||(ext == extpcd)))
+    {
+        std::cout << "文件格式不支持!" << std::endl;
+        std::cout << "支持文件格式：*.pcd和*.ply！" << std::endl;
+        return(-1);
+    }
+    
+  
+    pcl::PointCloud<pcl::PointXYZ>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZ>) ;
+    if (ext == extply)
+    {
+        if (pcl::io::loadPLYFile(argv[1] , *cloud) == -1)
+        {
+            PCL_ERROR("Could not read ply file!\n") ;
+            return -1;
+        }
+    }
+    else
+    {
+        if (pcl::io::loadPCDFile(argv[1] , *cloud) == -1)
+        {
+            PCL_ERROR("Could not read pcd file!\n") ;
+            return -1;
+        }
+    }
+    pcl::search::Search<pcl::PointXYZ>::Ptr tree=boost::shared_ptr<pcl::search::Search<pcl::PointXYZ>>(new pcl::search::KdTree<pcl::PointXYZ>);
+    pcl::PointCloud<pcl::Normal>::Ptr normals(new  pcl::PointCloud<pcl::Normal>);
+    pcl::NormalEstimation<pcl::PointXYZ,pcl::Normal> n;
+    n.setInputCloud(cloud);
+    n.setSearchMethod(tree);
+    n.setKSearch(50);
+    n.compute(*normals);
+    
+    pcl::IndicesPtr indices(new std::vector<int>);
+    pcl::PassThrough<pcl::PointXYZ>pass;
+    pass.setInputCloud(cloud);
+    pass.setFilterFieldName("z");
+    pass.setFilterLimits(0.0,1.0);
+    pass.filter(*indices);
+    
+    pcl::RegionGrowing<pcl::PointXYZ, pcl::Normal>reg;
+    reg.setMinClusterSize (50);
+    reg.setMaxClusterSize (100000);
+    reg.setSearchMethod (tree);
+    reg.setNumberOfNeighbours (30);
+    reg.setInputCloud (cloud);
+    
+    reg.setInputNormals (normals);
+    reg.setSmoothnessThreshold (10.0/180.0*M_PI);
+    reg.setCurvatureThreshold (1.0);
+    
+    
+    std::vector <pcl::PointIndices> clusters;
+    reg.extract (clusters);//应用分割算法，提取聚类
+    pcl::PointCloud <pcl::PointXYZRGB>::Ptr colored_cloud = reg.getColoredCloud ();//对聚类随机赋一颜色，不同的颜色为不同的聚类
+    pcl::visualization::CloudViewer viewer ("Cluster viewer");
+    viewer.showCloud (colored_cloud);//可视化聚类
+    while(viewer.wasStopped())
+    {}
+    return 0;
+    
+}
